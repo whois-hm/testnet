@@ -209,6 +209,7 @@ public:
 
 		if(_th)
 		{
+			_th->join();
 			delete _th;
 			_th = nullptr;
 		}
@@ -244,12 +245,26 @@ public:
 	int put(char *buffer, unsigned size)
 	{
 		static char crlf[] = { '\r', '\n' };
-		for(unsigned i = 0; i < size; i++)
+		char dump[size + 1] = {0, };
+		memcpy(dump, buffer, size);
+
+		if(buffer[size-1] != '\n')
 		{
-			if (buffer[i] == '\r' || buffer[i] == '\n') {
+			dump[size] = '\n';
+		}
+
+		for(int i = 0; i < size + 1; i++)
+		{
+			printf("%02x\n", dump[i]);
+		}
+
+		int resize = strlen(dump);
+		for(unsigned i = 0; i < resize; i++)
+		{
+			if (dump[i] == '\r' || dump[i] == '\n') {
 				telnet_send(_telnet, crlf, 2);
 			} else {
-				telnet_send(_telnet, buffer + i, 1);
+				telnet_send(_telnet, dump + i, 1);
 			}
 		}
 		return size;

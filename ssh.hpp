@@ -129,7 +129,14 @@ public:
 
 		return 1;
 	}
-	int channel_open()
+    virtual void channel_close()
+    {
+        ssh_channel_send_eof(_channel);
+        ssh_channel_close(_channel);
+        ssh_channel_free(_channel);
+    }
+
+    virtual  int channel_open()
 	{
 		do
 		{
@@ -227,6 +234,7 @@ public:
 				0,
 				0) < 0)
 		{
+
 			return -1;
 		}
 		return ssh_userauth_password(_session,

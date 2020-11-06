@@ -64,6 +64,7 @@ public:
 	{
 		std::chrono::nanoseconds _nsec;
 		echo_reply(int type, int code, std::chrono::nanoseconds &&nsec) : tc(type, code), _nsec(nsec){}
+        echo_reply(const echo_reply &er) : tc(er._type, er._code), _nsec(er._nsec){}
 		virtual operator bool() const
 		{
 
@@ -126,7 +127,7 @@ private:
 	    return ( answer );
 	}
 
-	int flow(const std::string targetip, int timeout, struct icmp pack, struct icmp &rpack)
+    int flow(const std::string &targetip, int timeout, struct icmp pack, struct icmp &rpack)
 	{
 		int flow_res = -1;
 		unsigned char iphdr_icmp_buffer[
@@ -265,7 +266,7 @@ public:
 };
 
 
-std::ostream& operator<<(std::ostream& os, const neticmp::echo_reply& o)
+inline std::ostream& operator<<(std::ostream& os, const neticmp::echo_reply& o)
 {
 	os << "<echo reply>" << std::endl;
 	os << "type = " << o._type << std::endl;
@@ -274,7 +275,7 @@ std::ostream& operator<<(std::ostream& os, const neticmp::echo_reply& o)
 	os << "res = " << o.operator bool() << std::endl;
    return os;
 }
-std::ostream& operator<<(std::ostream& os, const neticmp::timestamp_reply& o)
+inline std::ostream& operator<<(std::ostream& os, const neticmp::timestamp_reply& o)
 {
 	os << "<timestamp reply>" << std::endl;
 	os << "type = " << o._type << std::endl;

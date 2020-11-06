@@ -146,7 +146,7 @@ private:
 	std::string _netmask;
 	std::string _bcastaddr;
 };
-std::ostream& operator<<(std::ostream& os, const ifaddrdevice& o)
+inline  std::ostream& operator<<(std::ostream& os, const ifaddrdevice& o)
 {
 	 os << "<ifaddrdevice info>" << std::endl;
     os << "device = " << o._name << std::endl;

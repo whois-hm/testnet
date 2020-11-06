@@ -146,5 +146,6 @@ struct throw_register_sys_except
 #include "icmp.hpp"
 #include "ftpclient.hpp"
 #include "ssh.hpp"
+#include "scp.hpp"
 #include "telnet.hpp"
 

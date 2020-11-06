@@ -236,7 +236,7 @@ private:
 	friend std::ostream& operator<<(std::ostream& os, const fds& o);
 };
 
-std::ostream& operator<<(std::ostream& os, const fds& o)
+inline std::ostream& operator<<(std::ostream& os, const fds& o)
 {
 	os << "<fds wait for list count = "<< o._el_vec.size() << ">" << std::endl;
 	for(auto &it : o._el_vec)
@@ -245,7 +245,7 @@ std::ostream& operator<<(std::ostream& os, const fds& o)
 	}
     return os;
 }
-std::ostream& operator<<(std::ostream& os, const fds::_element& o)
+inline  std::ostream& operator<<(std::ostream& os, const fds::_element& o)
 {
 	os << "<fds element>" << std::endl;
 	os << "descriptor = " << o._fd << std::endl;
