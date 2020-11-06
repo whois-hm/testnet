@@ -64,18 +64,18 @@ protected:
 		{
 			return -1;
 		}
-//		if (ssh_getpass("Password: ",
-//				password,
-//				sizeof(password),
-//				0,
-//				0) < 0)
-//		{
-//
-//			return -1;
-//		}
+        if (ssh_getpass("Password: ",
+                password,
+                sizeof(password),
+                0,
+                0) < 0)
+        {
+
+            return -1;
+        }
 		return ssh_userauth_password(_session,
 				nullptr,
-				"guseoxhdtls") == SSH_AUTH_SUCCESS ? 1
+                password) == SSH_AUTH_SUCCESS ? 1
 						: -1;
 	}
 	std::string get_download_current_dir()
