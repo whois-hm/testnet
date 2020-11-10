@@ -65,6 +65,7 @@
 #include <condition_variable>
 #include <future>
 #include <cassert>
+#include <dirent.h>
 #include "libssh/libssh.h"
 #include "libtelnet.h"
 #define TN_WANNING_LOGGING
@@ -147,5 +148,6 @@ struct throw_register_sys_except
 #include "ftpclient.hpp"
 #include "ssh.hpp"
 #include "scp.hpp"
+#include "ssh_term.hpp"
 #include "telnet.hpp"
 

@@ -1,83 +1,9 @@
 #pragma once
 
 
-class netscp : public netssh
+class netscp : public netssh_session
 {
 protected:
-
-	virtual int verify_server(enum ssh_known_hosts_e e)
-	{
-		char *hexa = nullptr;
-		char buf[10];
-		char *p;
-
-		do
-		{
-			if(e == SSH_KNOWN_HOSTS_OK)
-			{
-				return 1;
-			}
-			if(e == SSH_KNOWN_HOSTS_ERROR)
-			{
-				return -1;
-			}
-			if(e == SSH_KNOWN_HOSTS_CHANGED)
-			{
-				printf("The host key for this server was not found but an other"
-						"type of key exists.\n");
-				printf("An attacker might change the default server key to"
-						"confuse your client into thinking the key does not exist\n");
-				return -1;
-			}
-			if(e == SSH_KNOWN_HOSTS_NOT_FOUND ||
-					e == SSH_KNOWN_HOSTS_UNKNOWN)
-			{
-				hexa = ssh_get_hexa(_srv_pubkey_hash, _srv_pubkey_hashlen);
-				printf("The server is notfound or unknown. Do you trust the host key?\n");
-				printf("Public key hash: %s\n", hexa);
-				ssh_string_free_char(hexa);
-
-				p = fgets(buf, sizeof(buf), stdin);
-				if(p == nullptr)
-				{
-					return -1;
-				}
-				if(strncasecmp(buf, "yes", 3))
-				{
-					return -1;
-				}
-				if(ssh_session_update_known_hosts(_session) != SSH_OK)
-				{
-					return -1;
-				}
-			}
-			return 1;
-		}while(0);
-
-		return -1;
-	}
-	virtual int auth_methods(int methods)
-	{
-		char password[128] = {0, };
-
-		if (!(methods & SSH_AUTH_METHOD_PASSWORD))
-		{
-			return -1;
-		}
-        if (ssh_getpass("Password: ",
-                password,
-                sizeof(password),
-                0,
-                0) < 0)
-        {
-
-            return -1;
-        }
-		return ssh_userauth_password(_session,
-				nullptr,
-                password) == SSH_AUTH_SUCCESS ? 1
-						: -1;
-	}
 	std::string get_download_current_dir()
 	{
 		std::string targetdir = _download_root_dir;
@@ -192,16 +118,10 @@ public:
 			const std::string srvip,
 			unsigned short srvport,
 			enum ssh_publickey_hash_type publickey_hash_type,
-			int verbosity) : netssh(srvid, srvip, srvport, publickey_hash_type, verbosity) { }
+			int verbosity) : netssh_session(srvid, srvip, srvport, publickey_hash_type, verbosity) { }
 	virtual ~netscp() { }
-    virtual void channel_close() {}
-    virtual  int channel_open()
-	{
-		return 1;
-	}
     int download(const std::string &path, const std::string &to)
     {
-		bool res = -1;
 		int pr_res;
 		_download_root_dir = to;
 		_download_recursive_dirs.clear();
@@ -229,7 +149,179 @@ public:
 		}while(0);
 		ssh_scp_close(scp);
 		ssh_scp_free(scp);
-		return res;
+		return pr_res == SSH_SCP_REQUEST_EOF ? 1 : -1;
+    }
+    std::tuple<std::string, std::string, bool> getsplit_target(const std::string &url)
+	{
+    	std::vector<std::string> url_split;
+    	std::string token;
+    	std::stringstream ss(url);
+    	char split = '/';
+    	if(url.empty())
+    	{
+    		return std::make_tuple("","",false);
+    	}
+    	while(std::getline(ss, token, split))
+    	{
+    		if(token.size() > 0)
+    		{
+    			url_split.push_back(token);
+    		}
+    	}
+    	if(url_split.size() <= 0)
+    	{
+    		if(url[0] != '/')
+    		{
+    			return std::make_tuple("","",false);
+    		}
+    	}
+
+    	std::string fpath = url[0] == '/' ? "/" : "./";
+    	std::string target = url_split[url_split.size() - 1];
+    	for(int i = 0; i < url_split.size() - 1; i++)
+    	{
+    		fpath += url_split[i];
+    		fpath += "/";
+    	}
+    	return std::make_tuple(fpath, target, true);
+
+	}
+    void upload_file(ssh_scp scp, const std::string &fpath, const std::string &to, const std::string &target, int &err)
+    {
+    	if(err < 0)
+    	{
+    		printf("can't upload file : %s (error code return) %d\n", target.c_str(), err);
+    		return;
+    	}
+    	struct stat size;
+    	stat(fpath.c_str(), &size);
+    	unsigned filesize = size.st_size;
+    	unsigned filesize_gap = 1024;
+    	unsigned writedsize = 0;
+    	unsigned remainfilesize = filesize;
+
+
+    	int fd = open(fpath.c_str(), O_RDWR | O_SYNC, 777);
+    	if(fd < 0)
+    	{
+    		printf("can't upload file : %s (open error) ignored\n", to.c_str());
+    		return;
+    	}
+    	printf("upload file push: %s\n", to.c_str());
+
+    	if(SSH_OK != ssh_scp_push_file(scp, to.c_str(), filesize, S_IRUSR | S_IWUSR))
+    	{
+    		printf("can't upload file : %s (remote push error : %s)\n", to.c_str(), ssh_get_error(_session));
+    		close(fd);
+    		err = -2;
+			return;
+    	}
+    	if(remainfilesize <= 0)
+		{
+    		char dump[1];
+    		ssh_scp_write(scp, dump, 0);
+			close(fd);
+			return;
+		}
+
+    	unsigned char *buffer = new unsigned char[filesize];
+    	size_t res = read(fd, buffer, filesize);
+    	if(res != size.st_size)
+    	{
+    		printf("can't upload file : %s (size error)\n", to.c_str());
+    		close(fd);
+    		err = -3;
+    		return;
+    	}
+
+    	while(remainfilesize)
+    	{
+    		int next_write_size = remainfilesize >= filesize_gap ? filesize_gap : remainfilesize;
+
+    		if(SSH_OK != ssh_scp_write(scp, buffer + writedsize, next_write_size))
+    		{
+    			delete buffer;
+    			close(fd);
+    			err = -4;
+				return;
+    		}
+
+    		remainfilesize -= next_write_size;
+    		writedsize += next_write_size;
+    		printf("upload write : %s (%d/%d(byte))\r", target.c_str(), writedsize, filesize);
+    	}
+
+    	printf("\n");
+    	delete buffer;
+    	close(fd);
+    }
+    void upload_enter_directory(ssh_scp scp, const std::string &fpath, const std::string &to, const std::string &target, int &err)
+    {
+    	if(err < 0)
+    	{
+    		printf("can't upload directory : %s (error code return %d)\n", target.c_str(), err);
+    		return;
+    	}
+    	printf("upload directory push : %s\n", to.c_str());
+    	if(SSH_OK != ssh_scp_push_directory(scp, to.c_str(), S_IRWXU))
+    	{
+    		printf("can't push directory : %s (error code return %d)\n", target.c_str(), err);
+    		err = -9;
+    	}
+    }
+    void upload_leave_directory(ssh_scp scp)
+    {
+    	ssh_scp_leave_directory(scp);
+    }
+    void upload_test(ssh_scp scp, const std::string &fpath, const std::string &to, int &err)
+    {
+    	DIR *dir_ptr = nullptr;
+    	struct dirent *file = nullptr;
+
+    	std::tuple<std::string, std::string, bool > split =  getsplit_target(fpath);
+    	if(!std::get<2>(split))
+    	{
+    		return;
+    	}
+    	std::string path = std::get<0>(split);
+    	std::string target = std::get<1>(split);
+
+    	std::string nextfpath = (path + "/" + target);
+		std::string nexttopath = to + "/" + target;
+		if(target[0] == '.')
+		{
+			return;
+		}
+
+		//printf("upload test : %s\n", nextfpath.c_str());
+    	if((dir_ptr = opendir(nextfpath.c_str())) != nullptr)
+    	{
+
+    		upload_enter_directory(scp, nextfpath, nexttopath, target, err);
+    		while((file = readdir(dir_ptr)) != nullptr)
+    		{
+    			upload_test(scp, nextfpath + "/" + file->d_name, nexttopath, err);
+    		}
+    		upload_leave_directory(scp);
+    		return ;
+    	}
+
+    	upload_file(scp, nextfpath, nexttopath, target, err);
+    }
+    int upload(const std::string &fpath, const std::string &to)
+    {
+    	int errorcode = 1;
+		ssh_scp scp=ssh_scp_new(_session, SSH_SCP_WRITE | SSH_SCP_RECURSIVE, to.c_str());
+		if(SSH_OK == ssh_scp_init(scp))
+		{
+			upload_test(scp, fpath, to , errorcode);
+			ssh_scp_close(scp);
+			ssh_scp_free(scp);
+			return 1;
+		}
+		ssh_scp_close(scp);
+		ssh_scp_free(scp);
+		return -1;
     }
 };
 
