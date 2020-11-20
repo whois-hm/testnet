@@ -31,10 +31,7 @@ public:
 																								!sr_condition_connection_refuse(srres);}
 
 private:
-	int _domain;
-	int _type;
-	int _protocol;
-	int _fd;
+
 
 	tnsocket::sr makesr_syscall(int srcall)
 	{
@@ -58,18 +55,6 @@ private:
 		return std::make_pair(sbyte, con);
 	}
 
-	struct sockaddr_in fill_sockaddr_in(const std::string &ip,
-			int domain,
-			unsigned short port)
-	{
-		struct sockaddr_in addr;
-		memset(&addr, 0, sizeof(struct sockaddr_in));
-
-		addr.sin_addr.s_addr = inet_addr(ip.c_str());
-		addr.sin_family = domain;
-		addr.sin_port = htons(port);
-		return addr;
-	}
 	enum sock_condition wait_for(int rw/*wait signal for reading if set 1
 		other set 0 wait signal for writing
 		other set -1 wait signal both rw*/,
@@ -181,7 +166,67 @@ private:
 		return std::make_pair( total,
 				con);
 	}
+protected:
+	int _domain;
+	int _type;
+	int _protocol;
+	int _fd;
+	struct sockaddr_in fill_sockaddr_in(const std::string &ip,
+			int domain,
+			unsigned short port)
+	{
+		struct sockaddr_in addr;
+		memset(&addr, 0, sizeof(struct sockaddr_in));
+
+		if(!ip.empty())
+		{
+			addr.sin_addr.s_addr = inet_addr(ip.c_str());
+		}
+		else
+		{
+			addr.sin_addr.s_addr = htonl(INADDR_ANY);
+		}
+		addr.sin_family = domain;
+		addr.sin_port = htons(port);
+		return addr;
+	}
 public:
+	tnsocket (const tnsocket &s) = delete;
+	tnsocket operator = (const tnsocket &s) = delete;
+	tnsocket (tnsocket &&rhs)
+	{
+		_fd = rhs._fd;
+		_domain = rhs._domain;
+		_type = rhs._type;
+		_protocol = rhs._protocol;
+		rhs._fd = -1;
+	}
+	tnsocket operator = (tnsocket &&s)
+	{
+		return std::move(s);
+	}
+
+	tnsocket() :
+	_domain(-1),
+	_type(-1),
+	_protocol(-1),
+	 _fd(-1){}
+	tnsocket(int fd) : _fd(fd)
+	{
+		TN_ASSERT(valid());
+		{
+			socklen_t len = sizeof(_domain);
+			TN_ASSERT(!getsockopt(_fd, SOL_SOCKET, SO_DOMAIN, &_domain, &len));
+		}
+		{
+			socklen_t len = sizeof(_type);
+			TN_ASSERT(!getsockopt(_fd, SOL_SOCKET, SO_TYPE, &_type, &len));
+		}
+		{
+			socklen_t len = sizeof(_protocol);
+			TN_ASSERT(!getsockopt(_fd, SOL_SOCKET, SO_PROTOCOL, &_protocol, &len));
+		}
+	}
 	tnsocket(int domain,
 			int type,
 			int protocol) :
@@ -192,6 +237,42 @@ public:
 	{
 		TN_ASSERT(valid());
 	}
+	bool isaccepted()
+	{
+		int t = -1;
+		if(valid())
+		{
+			socklen_t len = sizeof(t);
+			TN_ASSERT(!getsockopt(_fd, SOL_SOCKET, SO_ACCEPTCONN, &t, &len));
+			t = 1;
+		}
+
+		return t == 1;
+	}
+	std::string accepted_get_ip()
+	{
+		struct sockaddr_in clientaddr;
+		bzero(&clientaddr, sizeof(clientaddr));
+		socklen_t client_len = sizeof(clientaddr);
+		if(isaccepted() &&
+				!getpeername(_fd, (struct sockaddr *)&clientaddr, &client_len))
+		{
+			return std::string (inet_ntoa(clientaddr.sin_addr));
+		}
+		return std::string();
+	}
+	int accepted_get_port()
+	{
+		struct sockaddr_in clientaddr;
+		bzero(&clientaddr, sizeof(clientaddr));
+		socklen_t client_len = sizeof(clientaddr);
+		if(isaccepted() &&
+				!getpeername(_fd, (struct sockaddr *)&clientaddr, &client_len))
+		{
+			return ntohs(clientaddr.sin_port);
+		}
+		return -1;
+	}
 	virtual ~tnsocket()
 	{
 		set_invalid();
@@ -201,6 +282,10 @@ public:
 		return _fd;
 	}
 	bool valid() const {return _fd != -1;}
+	operator bool() const
+	{
+		return valid();
+	}
 	void set_invalid()
 	{
 		if(valid())
@@ -360,4 +445,36 @@ public:
 		}
 		return conres;
 	}
+	bool listen_setup(const std::string ip, unsigned short port)
+	{
+		struct sockaddr_in addr = fill_sockaddr_in(ip, _domain, port);
+
+		if(bind(_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0)
+		{
+			return false;
+		}
+		if(listen(_fd, 5) < 0)
+		{
+			return false;
+		}
+		make_nonblock();
+		return true;
+	}
+	tnsocket accept()
+	{
+		struct sockaddr_in client_addr;
+	   unsigned client_addr_size = sizeof( client_addr);
+
+	   int client = ::accept(_fd,
+			   (struct sockaddr*)&client_addr,
+			   &client_addr_size);
+
+	   if(client < 0)
+	   {
+		   return tnsocket();
+	   }
+
+		return tnsocket(client);
+	}
+
 };
